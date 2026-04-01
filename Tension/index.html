@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>材料力学· 轴向拉伸变形</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #ddd;
+            padding: 8px 18px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
+            border: 1px solid #555;
+            pointer-events: none;
+            z-index: 10;
+            font-weight: 500;
+        }
+        #controls-container {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 22, 28, 0.92);
+            color: white;
+            padding: 16px 28px;
+            border-radius: 50px;
+            backdrop-filter: blur(10px);
+            border: 1px solid #6c8fb0;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            z-index: 20;
+            font-size: 1rem;
+            white-space: nowrap;
+        }
+        #controls-container label {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            color: #eee;
+            font-weight: 500;
+        }
+        #controls-container span {
+            color: #ffaa66;
+            font-weight: 700;
+            min-width: 70px;
+            text-align: center;
+            background: rgba(0,0,0,0.4);
+            padding: 4px 12px;
+            border-radius: 40px;
+            font-size: 1.1rem;
+        }
+        input[type=range] {
+            width: 180px;
+            height: 6px;
+            background: linear-gradient(90deg, #4a9eff, #ff6a55);
+            border-radius: 10px;
+            -webkit-appearance: none;
+            appearance: none;
+            outline: none;
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 12px #4a9eff;
+            border: 2px solid #4a9eff;
+            transition: 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #4a9eff;
+        }
+        #parameter-value {
+            color: #ffaa66;
+            font-weight: 800;
+            font-size: 1.2rem;
+            min-width: 70px;
+            text-align: center;
+        }
+        .view-buttons {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 12px;
+            z-index: 20;
+            flex-direction: column;
+        }
+        .view-btn {
+            background: rgba(30, 40, 55, 0.9);
+            backdrop-filter: blur(8px);
+            border: 1px solid #6c9fcf;
+            color: #ccddff;
+            padding: 8px 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+        .view-btn:hover {
+            background: #2a4a7a;
+            border-color: #88aaff;
+            color: white;
+            transform: scale(1.02);
+        }
+        .view-btn.active {
+            background: #3a6ea5;
+            border-color: #aaccff;
+            color: white;
+            box-shadow: 0 0 12px rgba(100, 150, 255, 0.3);
+        }
+        @media (max-width: 700px) {
+            #controls-container { 
+                flex-direction: column; 
+                gap: 12px; 
+                width: 90%; 
+                padding: 16px 20px; 
+                border-radius: 30px;
+                white-space: normal;
+            }
+            input[type=range] { width: 100%; }
+            #info { font-size: 0.7rem; top: 10px; left: 10px; }
+            .view-buttons { top: 10px; right: 10px; gap: 8px; }
+            .view-btn { padding: 5px 12px; font-size: 0.7rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="controls-container">
+        <label>
+            <span style="color:white;">拉伸程度</span>
+            <span id="parameter-value">0.00</span>
+        </label>
+        <input type="range" id="stretch-slider" min="0.0" max="1.0" step="0.01" value="0.0">
+    </div>
+    <div class="view-buttons">
+        <button class="view-btn" id="view-front">正面视角</button>
+        <button class="view-btn" id="view-oblique1">斜侧视角</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.126.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.126.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 场景初始化 ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0c0f14);
+
+        // ======================= 杆件几何参数 =======================
+        const originalLength = 12.0;
+        const width = 4;
+        const height = 4;
+        const segments = 12;
+        
+        const halfW = width / 2;
+        const halfH = height / 2;
+        
+        const maxStrain = 0.4;
+        const poissonRatio = 0.3;
+        
+        // 正交相机视野
+        const frustumSize = 4.2;
+        const aspect = window.innerWidth / window.innerHeight;
+        const camera = new THREE.OrthographicCamera(
+            -frustumSize * aspect,
+            frustumSize * aspect,
+            frustumSize,
+            -frustumSize,
+            0.1,
+            50
+        );
+        
+        // 预设视角配置
+        const views = {
+            front: {
+                position: new THREE.Vector3(7.0, 0, 0),
+                target: new THREE.Vector3(0, 0, 0),
+                up: new THREE.Vector3(0, 1, 0),
+                name: '正面视角'
+            },
+            oblique1: {
+                position: new THREE.Vector3(6.5, 0.6, 0.8),
+                target: new THREE.Vector3(0, 0, 0),
+                up: new THREE.Vector3(0, 1, 0),
+                name: '斜侧视角'
+            }
+        };
+        
+        camera.position.copy(views.front.position);
+        camera.lookAt(views.front.target);
+        camera.up.copy(views.front.up);
+
+        // --- 渲染器 ---
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // --- 轨道控制 ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.target.set(0, 0, 0);
+        controls.zoomSpeed = 1.2;
+        controls.update();
+
+        // --- 灯光系统 ---
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.3);
+        mainLight.position.set(4, 8, 5);
+        scene.add(mainLight);
+        
+        const fillLight = new THREE.DirectionalLight(0xffccaa, 0.7);
+        fillLight.position.set(-3, 4, -5);
+        scene.add(fillLight);
+        
+        const rimLight = new THREE.PointLight(0x6688aa, 0.5);
+        rimLight.position.set(0, 2, 6);
+        scene.add(rimLight);
+        
+        const backRim = new THREE.PointLight(0x88aacc, 0.4);
+        backRim.position.set(0, 1, -7);
+        scene.add(backRim);
+
+        // 预计算各截面原始z坐标
+        const zPositions = [];
+        for (let i = 0; i <= segments; i++) {
+            zPositions.push(-originalLength/2 + (i / segments) * originalLength);
+        }
+        
+        // ---------- 1. 杆体外壳线框 ----------
+        const shellVerts = (segments + 1) * 4;
+        const shellPosArray = new Float32Array(shellVerts * 3);
+        const shellGeo = new THREE.BufferGeometry();
+        shellGeo.setAttribute('position', new THREE.BufferAttribute(shellPosArray, 3));
+        
+        const indices = [];
+        for (let i = 0; i < segments; i++) {
+            const base = i * 4;
+            const nextBase = (i + 1) * 4;
+            indices.push(base, base+1, base+1, base+2, base+2, base+3, base+3, base);
+            indices.push(base, nextBase, base+1, nextBase+1, base+2, nextBase+2, base+3, nextBase+3);
+        }
+        const lastBase = segments * 4;
+        indices.push(lastBase, lastBase+1, lastBase+1, lastBase+2, lastBase+2, lastBase+3, lastBase+3, lastBase);
+        
+        shellGeo.setIndex(indices);
+        const shellMat = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 2 });
+        const shellLines = new THREE.LineSegments(shellGeo, shellMat);
+        scene.add(shellLines);
+        
+        // ---------- 2. 中心轴线 ----------
+        const axisPoints = [];
+        const axisSteps = 100;
+        for (let i = 0; i <= axisSteps; i++) {
+            const t = i / axisSteps;
+            const z = -originalLength/2 + t * originalLength;
+            axisPoints.push(new THREE.Vector3(0, 0, z));
+        }
+        const axisGeometry = new THREE.BufferGeometry().setFromPoints(axisPoints);
+        const axisMaterial = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 2.5 });
+        const centerAxis = new THREE.Line(axisGeometry, axisMaterial);
+        scene.add(centerAxis);
+        
+        // ---------- 3. 横截面十字网格 (所有截面) ----------
+        const allSectionGroups = [];
+        for (let i = 0; i <= segments; i++) {
+            const group = new THREE.Group();
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+            const hPoints = [new THREE.Vector3(-halfW, 0, 0), new THREE.Vector3(halfW, 0, 0)];
+            const hLineGeo = new THREE.BufferGeometry().setFromPoints(hPoints);
+            const hLine = new THREE.Line(hLineGeo, lineMaterial);
+            group.add(hLine);
+            
+            const vPoints = [new THREE.Vector3(0, -halfH, 0), new THREE.Vector3(0, halfH, 0)];
+            const vLineGeo = new THREE.BufferGeometry().setFromPoints(vPoints);
+            const vLine = new THREE.Line(vLineGeo, lineMaterial);
+            group.add(vLine);
+            scene.add(group);
+            allSectionGroups.push({ group, segIdx: i });
+        }
+        
+        // ---------- 4. 六个面的表面纵向线 ----------
+        // 每个面5条线：左、左中、中心、右中、右
+        // 面定义：
+        // - 上表面 (Y = +halfH)
+        // - 下表面 (Y = -halfH)
+        // - 前表面 (X = +halfW) - 从X轴正方向看到的面
+        // - 后表面 (X = -halfW) - 从X轴负方向看到的面
+        
+        const lineMatMain = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+        const lineMatAux = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+        
+        // 上表面线条 (Y = +halfH) - 沿X方向分布5条线
+        const topLeftLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const topLeftMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const topCenterLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const topRightMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const topRightLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        
+        // 下表面线条 (Y = -halfH) - 沿X方向分布5条线
+        const bottomLeftLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const bottomLeftMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const bottomCenterLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const bottomRightMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const bottomRightLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        
+        // 前表面线条 (X = +halfW) - 沿Y方向分布5条线
+        const frontTopLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const frontTopMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const frontCenterLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const frontBottomMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const frontBottomLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        
+        // 后表面线条 (X = -halfW) - 沿Y方向分布5条线
+        const backTopLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const backTopMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const backCenterLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        const backBottomMidLine = new THREE.Line(new THREE.BufferGeometry(), lineMatAux);
+        const backBottomLine = new THREE.Line(new THREE.BufferGeometry(), lineMatMain);
+        
+        scene.add(topLeftLine, topLeftMidLine, topCenterLine, topRightMidLine, topRightLine);
+        scene.add(bottomLeftLine, bottomLeftMidLine, bottomCenterLine, bottomRightMidLine, bottomRightLine);
+        scene.add(frontTopLine, frontTopMidLine, frontCenterLine, frontBottomMidLine, frontBottomLine);
+        scene.add(backTopLine, backTopMidLine, backCenterLine, backBottomMidLine, backBottomLine);
+        
+        // 获取表面点坐标的辅助函数
+        function getPointsOnTopBottom(yPos, xPositions, zPos) {
+            return {
+                left: new THREE.Vector3(xPositions.left, yPos, zPos),
+                leftMid: new THREE.Vector3(xPositions.leftMid, yPos, zPos),
+                center: new THREE.Vector3(xPositions.center, yPos, zPos),
+                rightMid: new THREE.Vector3(xPositions.rightMid, yPos, zPos),
+                right: new THREE.Vector3(xPositions.right, yPos, zPos)
+            };
+        }
+        
+        function getPointsOnFrontBack(xPos, yPositions, zPos) {
+            return {
+                top: new THREE.Vector3(xPos, yPositions.top, zPos),
+                topMid: new THREE.Vector3(xPos, yPositions.topMid, zPos),
+                center: new THREE.Vector3(xPos, yPositions.center, zPos),
+                bottomMid: new THREE.Vector3(xPos, yPositions.bottomMid, zPos),
+                bottom: new THREE.Vector3(xPos, yPositions.bottom, zPos)
+            };
+        }
+        
+        // 更新所有表面线条
+        function updateAllSurfaceLines(currentHalfW, currentHalfH, zPositionsDeformed) {
+            // X方向位置：左、左中、中心、右中、右
+            const xPos = {
+                left: -currentHalfW,
+                leftMid: -currentHalfW / 2,
+                center: 0,
+                rightMid: currentHalfW / 2,
+                right: currentHalfW
+            };
+            
+            // Y方向位置：上、上中、中心、下中、下
+            const yPos = {
+                top: currentHalfH,
+                topMid: currentHalfH / 2,
+                center: 0,
+                bottomMid: -currentHalfH / 2,
+                bottom: -currentHalfH
+            };
+            
+            // 存储各线条的点数组
+            const topLeftArr = [], topLeftMidArr = [], topCenterArr = [], topRightMidArr = [], topRightArr = [];
+            const bottomLeftArr = [], bottomLeftMidArr = [], bottomCenterArr = [], bottomRightMidArr = [], bottomRightArr = [];
+            const frontTopArr = [], frontTopMidArr = [], frontCenterArr = [], frontBottomMidArr = [], frontBottomArr = [];
+            const backTopArr = [], backTopMidArr = [], backCenterArr = [], backBottomMidArr = [], backBottomArr = [];
+            
+            for (let i = 0; i <= segments; i++) {
+                const z = zPositionsDeformed[i];
+                
+                // 上表面 (Y = +halfH)
+                const topPoints = getPointsOnTopBottom(yPos.top, xPos, z);
+                topLeftArr.push(topPoints.left.x, topPoints.left.y, topPoints.left.z);
+                topLeftMidArr.push(topPoints.leftMid.x, topPoints.leftMid.y, topPoints.leftMid.z);
+                topCenterArr.push(topPoints.center.x, topPoints.center.y, topPoints.center.z);
+                topRightMidArr.push(topPoints.rightMid.x, topPoints.rightMid.y, topPoints.rightMid.z);
+                topRightArr.push(topPoints.right.x, topPoints.right.y, topPoints.right.z);
+                
+                // 下表面 (Y = -halfH)
+                const bottomPoints = getPointsOnTopBottom(yPos.bottom, xPos, z);
+                bottomLeftArr.push(bottomPoints.left.x, bottomPoints.left.y, bottomPoints.left.z);
+                bottomLeftMidArr.push(bottomPoints.leftMid.x, bottomPoints.leftMid.y, bottomPoints.leftMid.z);
+                bottomCenterArr.push(bottomPoints.center.x, bottomPoints.center.y, bottomPoints.center.z);
+                bottomRightMidArr.push(bottomPoints.rightMid.x, bottomPoints.rightMid.y, bottomPoints.rightMid.z);
+                bottomRightArr.push(bottomPoints.right.x, bottomPoints.right.y, bottomPoints.right.z);
+                
+                // 前表面 (X = +halfW)
+                const frontPoints = getPointsOnFrontBack(xPos.right, yPos, z);
+                frontTopArr.push(frontPoints.top.x, frontPoints.top.y, frontPoints.top.z);
+                frontTopMidArr.push(frontPoints.topMid.x, frontPoints.topMid.y, frontPoints.topMid.z);
+                frontCenterArr.push(frontPoints.center.x, frontPoints.center.y, frontPoints.center.z);
+                frontBottomMidArr.push(frontPoints.bottomMid.x, frontPoints.bottomMid.y, frontPoints.bottomMid.z);
+                frontBottomArr.push(frontPoints.bottom.x, frontPoints.bottom.y, frontPoints.bottom.z);
+                
+                // 后表面 (X = -halfW)
+                const backPoints = getPointsOnFrontBack(xPos.left, yPos, z);
+                backTopArr.push(backPoints.top.x, backPoints.top.y, backPoints.top.z);
+                backTopMidArr.push(backPoints.topMid.x, backPoints.topMid.y, backPoints.topMid.z);
+                backCenterArr.push(backPoints.center.x, backPoints.center.y, backPoints.center.z);
+                backBottomMidArr.push(backPoints.bottomMid.x, backPoints.bottomMid.y, backPoints.bottomMid.z);
+                backBottomArr.push(backPoints.bottom.x, backPoints.bottom.y, backPoints.bottom.z);
+            }
+            
+            // 更新上表面线条
+            updateLineGeometry(topLeftLine, topLeftArr);
+            updateLineGeometry(topLeftMidLine, topLeftMidArr);
+            updateLineGeometry(topCenterLine, topCenterArr);
+            updateLineGeometry(topRightMidLine, topRightMidArr);
+            updateLineGeometry(topRightLine, topRightArr);
+            
+            // 更新下表面线条
+            updateLineGeometry(bottomLeftLine, bottomLeftArr);
+            updateLineGeometry(bottomLeftMidLine, bottomLeftMidArr);
+            updateLineGeometry(bottomCenterLine, bottomCenterArr);
+            updateLineGeometry(bottomRightMidLine, bottomRightMidArr);
+            updateLineGeometry(bottomRightLine, bottomRightArr);
+            
+            // 更新前表面线条
+            updateLineGeometry(frontTopLine, frontTopArr);
+            updateLineGeometry(frontTopMidLine, frontTopMidArr);
+            updateLineGeometry(frontCenterLine, frontCenterArr);
+            updateLineGeometry(frontBottomMidLine, frontBottomMidArr);
+            updateLineGeometry(frontBottomLine, frontBottomArr);
+            
+            // 更新后表面线条
+            updateLineGeometry(backTopLine, backTopArr);
+            updateLineGeometry(backTopMidLine, backTopMidArr);
+            updateLineGeometry(backCenterLine, backCenterArr);
+            updateLineGeometry(backBottomMidLine, backBottomMidArr);
+            updateLineGeometry(backBottomLine, backBottomArr);
+        }
+        
+        function updateLineGeometry(line, posArray) {
+            const bufferGeo = new THREE.BufferGeometry();
+            bufferGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(posArray), 3));
+            line.geometry.dispose();
+            line.geometry = bufferGeo;
+        }
+        
+        // 左右棱边线 (在Y=0平面上，X方向边缘)
+        const leftEdgeGeo = new THREE.BufferGeometry();
+        const rightEdgeGeo = new THREE.BufferGeometry();
+        const edgeMat = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+        const leftEdgeLine = new THREE.Line(leftEdgeGeo, edgeMat);
+        const rightEdgeLine = new THREE.Line(rightEdgeGeo, edgeMat);
+        scene.add(leftEdgeLine, rightEdgeLine);
+        
+        function updateEdgeLines(currentHalfW, zPositionsDeformed) {
+            const leftArr = [], rightArr = [];
+            for (let i = 0; i <= segments; i++) {
+                const z = zPositionsDeformed[i];
+                leftArr.push(-currentHalfW, 0, z);
+                rightArr.push(currentHalfW, 0, z);
+            }
+            updateLineGeometry(leftEdgeLine, leftArr);
+            updateLineGeometry(rightEdgeLine, rightArr);
+        }
+        
+        // ---------- 5. 暗红色半透明横截面（5个主要截面）----------
+        const redSectionPositions = [0, Math.floor(segments/4), Math.floor(segments/2), Math.floor(3*segments/4), segments];
+        const redSectionMeshes = [];
+        
+        redSectionPositions.forEach((segIdx) => {
+            const group = new THREE.Group();
+            const geometry = new THREE.PlaneGeometry(width, height);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0xaa6666,
+                transparent: true, 
+                opacity: 0.45,
+                side: THREE.DoubleSide
+            });
+            const face = new THREE.Mesh(geometry, material);
+            group.add(face);
+            const edgesGeo = new THREE.EdgesGeometry(geometry);
+            const edgesMat = new THREE.LineBasicMaterial({ color: 0xcc8888, linewidth: 1.5 });
+            const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+            group.add(wireframe);
+            scene.add(group);
+            redSectionMeshes.push({ group, segIdx });
+        });
+        
+        // 存储未变形时的本地坐标
+        const shellLocal = [];
+        for (let i = 0; i <= segments; i++) {
+            const z = zPositions[i];
+            shellLocal.push([
+                new THREE.Vector3(-halfW, -halfH, z),
+                new THREE.Vector3( halfW, -halfH, z),
+                new THREE.Vector3( halfW,  halfH, z),
+                new THREE.Vector3(-halfW,  halfH, z)
+            ]);
+        }
+        
+        // 轴线本地坐标存储
+        const axisLocalPoints = [];
+        for (let i = 0; i <= axisSteps; i++) {
+            const t = i / axisSteps;
+            const z = -originalLength/2 + t * originalLength;
+            axisLocalPoints.push(new THREE.Vector3(0, 0, z));
+        }
+        
+        // ======================= 拉伸变形核心函数 =======================
+        function updateDeformation(t) {
+            const strain = t * maxStrain;
+            const stretchFactor = 1 + strain;
+            const contractionFactor = 1 - poissonRatio * strain;
+            const currentHalfW = halfW * contractionFactor;
+            const currentHalfH = halfH * contractionFactor;
+            
+            const deformedZPositions = [];
+            for (let i = 0; i <= segments; i++) {
+                deformedZPositions.push(zPositions[i] * stretchFactor);
+            }
+            
+            // 1. 更新外壳线框
+            const shellPosAttr = shellGeo.attributes.position.array;
+            let idx = 0;
+            for (let i = 0; i <= segments; i++) {
+                const z = deformedZPositions[i];
+                const corners = [
+                    new THREE.Vector3(-currentHalfW, -currentHalfH, z),
+                    new THREE.Vector3( currentHalfW, -currentHalfH, z),
+                    new THREE.Vector3( currentHalfW,  currentHalfH, z),
+                    new THREE.Vector3(-currentHalfW,  currentHalfH, z)
+                ];
+                for (let j = 0; j < 4; j++) {
+                    shellPosAttr[idx] = corners[j].x;
+                    shellPosAttr[idx+1] = corners[j].y;
+                    shellPosAttr[idx+2] = corners[j].z;
+                    idx += 3;
+                }
+            }
+            shellGeo.attributes.position.needsUpdate = true;
+            
+            // 2. 更新十字网格截面
+            allSectionGroups.forEach(item => {
+                const segIdx = item.segIdx;
+                const group = item.group;
+                const z = deformedZPositions[segIdx];
+                group.position.set(0, 0, z);
+                group.rotation.set(0, 0, 0);
+                
+                group.children.forEach(child => {
+                    if (child.isLine) {
+                        group.remove(child);
+                        child.geometry.dispose();
+                    }
+                });
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+                const hPoints = [new THREE.Vector3(-currentHalfW, 0, 0), new THREE.Vector3(currentHalfW, 0, 0)];
+                const hLineGeo = new THREE.BufferGeometry().setFromPoints(hPoints);
+                const hLine = new THREE.Line(hLineGeo, lineMaterial);
+                group.add(hLine);
+                
+                const vPoints = [new THREE.Vector3(0, -currentHalfH, 0), new THREE.Vector3(0, currentHalfH, 0)];
+                const vLineGeo = new THREE.BufferGeometry().setFromPoints(vPoints);
+                const vLine = new THREE.Line(vLineGeo, lineMaterial);
+                group.add(vLine);
+            });
+            
+            // 3. 更新暗红色截面
+            redSectionMeshes.forEach(item => {
+                const segIdx = item.segIdx;
+                const group = item.group;
+                const z = deformedZPositions[segIdx];
+                group.position.set(0, 0, z);
+                group.rotation.set(0, 0, 0);
+                
+                const oldPlane = group.children.find(c => c.isMesh);
+                const oldWire = group.children.find(c => c.isLineSegments);
+                if (oldPlane) {
+                    group.remove(oldPlane);
+                    oldPlane.geometry.dispose();
+                }
+                if (oldWire) {
+                    group.remove(oldWire);
+                    oldWire.geometry.dispose();
+                }
+                
+                const newWidth = width * contractionFactor;
+                const newHeight = height * contractionFactor;
+                const geometry = new THREE.PlaneGeometry(newWidth, newHeight);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0xaa6666,
+                    transparent: true, 
+                    opacity: 0.45,
+                    side: THREE.DoubleSide
+                });
+                const face = new THREE.Mesh(geometry, material);
+                group.add(face);
+                
+                const edgesGeo = new THREE.EdgesGeometry(geometry);
+                const edgesMat = new THREE.LineBasicMaterial({ color: 0xcc8888, linewidth: 1.5 });
+                const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+                group.add(wireframe);
+            });
+            
+            // 4. 更新中间轴线
+            const axisPosAttr = centerAxis.geometry.attributes.position;
+            if (axisPosAttr) {
+                const axisArray = axisPosAttr.array;
+                for (let i = 0; i < axisLocalPoints.length; i++) {
+                    const z = axisLocalPoints[i].z * stretchFactor;
+                    axisArray[i*3] = 0;
+                    axisArray[i*3+1] = 0;
+                    axisArray[i*3+2] = z;
+                }
+                axisPosAttr.needsUpdate = true;
+            }
+            
+            // 5. 更新所有表面线条 (上下前后四个面各5条)
+            updateAllSurfaceLines(currentHalfW, currentHalfH, deformedZPositions);
+            updateEdgeLines(currentHalfW, deformedZPositions);
+        }
+        
+        // --- 视角切换 ---
+        function setView(viewName) {
+            const view = views[viewName];
+            if (!view) return;
+            camera.position.copy(view.position);
+            controls.target.copy(view.target);
+            controls.update();
+            
+            document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.getElementById(`view-${viewName === 'front' ? 'front' : 'oblique1'}`);
+            if (activeBtn) activeBtn.classList.add('active');
+        }
+        
+        // --- 绑定UI ---
+        const slider = document.getElementById('stretch-slider');
+        const paramSpan = document.getElementById('parameter-value');
+        
+        slider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            paramSpan.textContent = val.toFixed(2);
+            updateDeformation(val);
+        });
+        
+        document.getElementById('view-front').addEventListener('click', () => setView('front'));
+        document.getElementById('view-oblique1').addEventListener('click', () => setView('oblique1'));
+        document.getElementById('view-front').classList.add('active');
+        
+        updateDeformation(0);
+        
+        // --- 窗口适配 ---
+        window.addEventListener('resize', onWindowResize, false);
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = -frustumSize * aspect;
+            camera.right = frustumSize * aspect;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // --- 渲染循环 ---
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        renderLoop();
+        
+        console.log('轴向拉伸演示 | 六面体各表面5条纵向线 | 上下前后各5条 | 侧面网格正方形');
+    </script>
+</body>
+</html>
