@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>材料力学· 纯弯曲梁</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #ddd;
+            padding: 8px 18px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
+            border: 1px solid #555;
+            pointer-events: none;
+            z-index: 10;
+            font-weight: 500;
+        }
+        #controls-container {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 22, 28, 0.92);
+            color: white;
+            padding: 16px 28px;
+            border-radius: 50px;
+            backdrop-filter: blur(10px);
+            border: 1px solid #6c8fb0;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            z-index: 20;
+            font-size: 1rem;
+            white-space: nowrap;
+        }
+        #controls-container label {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            color: #eee;
+            font-weight: 500;
+        }
+        #controls-container span {
+            color: #ffaa66;
+            font-weight: 700;
+            min-width: 70px;
+            text-align: center;
+            background: rgba(0,0,0,0.4);
+            padding: 4px 12px;
+            border-radius: 40px;
+            font-size: 1.1rem;
+        }
+        input[type=range] {
+            width: 180px;
+            height: 6px;
+            background: linear-gradient(90deg, #4a9eff, #ff6a55);
+            border-radius: 10px;
+            -webkit-appearance: none;
+            appearance: none;
+            outline: none;
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 0 12px #4a9eff;
+            border: 2px solid #4a9eff;
+            transition: 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #4a9eff;
+        }
+        #parameter-value {
+            color: #ffaa66;
+            font-weight: 800;
+            font-size: 1.2rem;
+            min-width: 70px;
+            text-align: center;
+        }
+        @media (max-width: 700px) {
+            #controls-container { 
+                flex-direction: column; 
+                gap: 12px; 
+                width: 90%; 
+                padding: 16px 20px; 
+                border-radius: 30px;
+                white-space: normal;
+            }
+            input[type=range] { width: 100%; }
+            #info { font-size: 0.7rem; top: 10px; left: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="controls-container">
+        <label>
+            <span style="color:white;">弯曲程度</span>
+            <span id="parameter-value">0.00</span> 
+        </label>
+        <input type="range" id="bend-slider" min="0.0" max="2.0" step="0.1" value="0.0">
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.126.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.126.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- 场景初始化 ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0c0f14);
+
+        // --- 相机：正面居中略微俯视 ---
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(12, 2.8, 0);
+        camera.lookAt(0, 0.2, 0);
+        camera.up.set(0, 1, 0);
+
+        // --- 渲染器 ---
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // --- 轨道控制 ---
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.target.set(0, 0.3, 0);
+        controls.zoomSpeed = 1.2;
+        controls.update();
+
+        // --- 灯光系统 ---
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+        
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.3);
+        mainLight.position.set(4, 8, 5);
+        scene.add(mainLight);
+        
+        const fillLight = new THREE.DirectionalLight(0xffccaa, 0.7);
+        fillLight.position.set(-3, 4, -5);
+        scene.add(fillLight);
+        
+        const rimLight = new THREE.PointLight(0x6688aa, 0.5);
+        rimLight.position.set(0, 2, 6);
+        scene.add(rimLight);
+        
+        const backRim = new THREE.PointLight(0x88aacc, 0.4);
+        backRim.position.set(0, 1, -7);
+        scene.add(backRim);
+
+        // ======================= 梁几何参数 =======================
+        const length = 8.0;
+        const width = 2.0;
+        const height = 1.6;
+        const segments = 12;
+
+        const halfW = width / 2;
+        const halfH = height / 2;
+
+        // 预计算各截面z坐标
+        const zPositions = [];
+        for (let i = 0; i <= segments; i++) {
+            zPositions.push(-length/2 + (i / segments) * length);
+        }
+
+        // ---------- 1. 梁体外壳线框 (颜色为网格蓝色调) ----------
+        const shellVerts = (segments + 1) * 4;
+        const shellPosArray = new Float32Array(shellVerts * 3);
+        const shellGeo = new THREE.BufferGeometry();
+        shellGeo.setAttribute('position', new THREE.BufferAttribute(shellPosArray, 3));
+
+        const indices = [];
+        for (let i = 0; i < segments; i++) {
+            const base = i * 4;
+            const nextBase = (i + 1) * 4;
+            indices.push(base, base+1, base+1, base+2, base+2, base+3, base+3, base);
+            indices.push(base, nextBase, base+1, nextBase+1, base+2, nextBase+2, base+3, nextBase+3);
+        }
+        const lastBase = segments * 4;
+        indices.push(lastBase, lastBase+1, lastBase+1, lastBase+2, lastBase+2, lastBase+3, lastBase+3, lastBase);
+        
+        shellGeo.setIndex(indices);
+        const shellMat = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 2 });
+        const shellLines = new THREE.LineSegments(shellGeo, shellMat);
+        scene.add(shellLines);
+
+        // ---------- 2. 中性层：半透明绿色面 ----------
+        const nx = 16;
+        const nz = segments;
+        const xVals = [];
+        for (let i = 0; i <= nx; i++) {
+            xVals.push(-halfW + (i / nx) * width);
+        }
+        
+        const neutralVertCount = (nx + 1) * (nz + 1);
+        const neutralPosArray = new Float32Array(neutralVertCount * 3);
+        const neutralGeo = new THREE.BufferGeometry();
+        neutralGeo.setAttribute('position', new THREE.BufferAttribute(neutralPosArray, 3));
+        
+        const neutralTriIndices = [];
+        for (let iz = 0; iz < nz; iz++) {
+            for (let ix = 0; ix < nx; ix++) {
+                const a = iz * (nx + 1) + ix;
+                const b = iz * (nx + 1) + ix + 1;
+                const c = (iz + 1) * (nx + 1) + ix;
+                const d = (iz + 1) * (nx + 1) + ix + 1;
+                neutralTriIndices.push(a, b, c);
+                neutralTriIndices.push(b, d, c);
+            }
+        }
+        neutralGeo.setIndex(neutralTriIndices);
+        
+        const neutralMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xaaffaa, 
+            transparent: true, 
+            opacity: 0.45,
+            side: THREE.DoubleSide
+        });
+        const neutralSurface = new THREE.Mesh(neutralGeo, neutralMaterial);
+        scene.add(neutralSurface);
+        
+        // 中性层边框线框
+        const neutralEdgesGeo = new THREE.BufferGeometry();
+        neutralEdgesGeo.setAttribute('position', new THREE.BufferAttribute(neutralPosArray.slice(), 3));
+        const edgeIndices = [];
+        for (let ix = 0; ix < nx; ix++) {
+            const a = 0 * (nx + 1) + ix;
+            const b = 0 * (nx + 1) + ix + 1;
+            edgeIndices.push(a, b);
+        }
+        const lastZ = nz;
+        for (let ix = 0; ix < nx; ix++) {
+            const a = lastZ * (nx + 1) + ix;
+            const b = lastZ * (nx + 1) + ix + 1;
+            edgeIndices.push(a, b);
+        }
+        for (let iz = 0; iz < nz; iz++) {
+            const a = iz * (nx + 1) + 0;
+            const b = (iz + 1) * (nx + 1) + 0;
+            edgeIndices.push(a, b);
+        }
+        for (let iz = 0; iz < nz; iz++) {
+            const a = iz * (nx + 1) + nx;
+            const b = (iz + 1) * (nx + 1) + nx;
+            edgeIndices.push(a, b);
+        }
+        neutralEdgesGeo.setIndex(edgeIndices);
+        const edgeMat = new THREE.LineBasicMaterial({ color: 0x8bcbff, linewidth: 1 });
+        const neutralBorder = new THREE.LineSegments(neutralEdgesGeo, edgeMat);
+        scene.add(neutralBorder);
+        
+        // ---------- 3. 横截面十字网格 (所有截面) ----------
+        const allSectionGroups = [];
+        for (let i = 0; i <= segments; i++) {
+            const group = new THREE.Group();
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+            // 水平线 (宽度方向)
+            const hPoints = [new THREE.Vector3(-halfW, 0, 0), new THREE.Vector3(halfW, 0, 0)];
+            const hLineGeo = new THREE.BufferGeometry().setFromPoints(hPoints);
+            const hLine = new THREE.Line(hLineGeo, lineMaterial);
+            group.add(hLine);
+            // 垂直线 (高度方向)
+            const vPoints = [new THREE.Vector3(0, -halfH, 0), new THREE.Vector3(0, halfH, 0)];
+            const vLineGeo = new THREE.BufferGeometry().setFromPoints(vPoints);
+            const vLine = new THREE.Line(vLineGeo, lineMaterial);
+            group.add(vLine);
+            scene.add(group);
+            allSectionGroups.push({ group, segIdx: i });
+        }
+        
+        // ---------- 4. 新增: 顶部纵向蓝线 & 底部纵向蓝线 (与轴线方向平行，连接每个截面的最上端和最下端) ----------
+        // 顶部线: 连接每个截面位置的上端点 (0, +halfH, z)
+        // 底部线: 连接每个截面位置的下端点 (0, -halfH, z)
+        // 使用 LineSegments 或 多个Line 动态更新，但为了变形时同步，创建两个Line对象，并动态更新其几何体。
+        // 预先定义顶部和底部在世界坐标系中的路径点(基于截面索引)，变形时根据每个截面的位置和旋转计算出实际端点坐标。
+        
+        // 存储每个截面变形后的顶部点和底部点 (动态更新)
+        const topPoints = new Array(segments + 1).fill(null).map(() => new THREE.Vector3());
+        const bottomPoints = new Array(segments + 1).fill(null).map(() => new THREE.Vector3());
+        
+        // 创建两条线的几何体 (初始占位)
+        const topLineGeo = new THREE.BufferGeometry();
+        const bottomLineGeo = new THREE.BufferGeometry();
+        const topLineMat = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 }); 
+        const bottomLineMat = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 1.5 });
+        const topLine = new THREE.Line(topLineGeo, topLineMat);
+        const bottomLine = new THREE.Line(bottomLineGeo, bottomLineMat);
+        scene.add(topLine);
+        scene.add(bottomLine);
+        
+        // 辅助函数: 根据截面位置和旋转，计算原始局部点 (0, halfH, 0) 或 (0, -halfH, 0) 在世界中的位置
+        // 给定 group 的位置和旋转角 (绕X轴旋转 -theta)，局部点变换到世界坐标
+        function getWorldPointFromSection(group, localY) {
+            // localY: halfH 或 -halfH, 局部坐标点 (0, localY, 0)
+            // group的旋转是绕X轴旋转 -theta, 位置为变形后截面中心
+            const pos = group.position;
+            const rotX = group.rotation.x; // 旋转角 (弧度)
+            // 局部点 (0, localY, 0) 经过旋转再平移
+            // 绕X轴旋转矩阵: y' = y*cos(angle) - z*sin(angle), z' = y*sin(angle) + z*cos(angle)
+            // 这里z=0, 所以 y' = localY * cos(rotX), z' = localY * sin(rotX)
+            const cosTheta = Math.cos(rotX);
+            const sinTheta = Math.sin(rotX);
+            const worldX = pos.x;
+            const worldY = pos.y + localY * cosTheta;
+            const worldZ = pos.z + localY * sinTheta;
+            return new THREE.Vector3(worldX, worldY, worldZ);
+        }
+        
+        // 更新顶部和底部纵向线的几何体
+        function updateLongitudinalLines() {
+            const topPosArray = [];
+            const bottomPosArray = [];
+            for (let i = 0; i <= segments; i++) {
+                const groupItem = allSectionGroups.find(g => g.segIdx === i);
+                if (groupItem) {
+                    const group = groupItem.group;
+                    const topPt = getWorldPointFromSection(group, halfH);
+                    const bottomPt = getWorldPointFromSection(group, -halfH);
+                    topPosArray.push(topPt.x, topPt.y, topPt.z);
+                    bottomPosArray.push(bottomPt.x, bottomPt.y, bottomPt.z);
+                } else {
+                    // fallback (理论上不会发生)
+                    topPosArray.push(0,0,0);
+                    bottomPosArray.push(0,0,0);
+                }
+            }
+            // 更新顶部线
+            const topBufferGeo = new THREE.BufferGeometry();
+            topBufferGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(topPosArray), 3));
+            topLine.geometry.dispose(); // 避免内存泄露
+            topLine.geometry = topBufferGeo;
+            
+            // 更新底部线
+            const bottomBufferGeo = new THREE.BufferGeometry();
+            bottomBufferGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bottomPosArray), 3));
+            bottomLine.geometry.dispose();
+            bottomLine.geometry = bottomBufferGeo;
+        }
+        
+        // ---------- 5. 暗红色半透明横截面（5个主要截面）----------
+        const redSectionPositions = [0, Math.floor(segments/4), Math.floor(segments/2), Math.floor(3*segments/4), segments];
+        const redSectionMeshes = [];
+        
+        redSectionPositions.forEach((segIdx) => {
+            const group = new THREE.Group();
+            const geometry = new THREE.PlaneGeometry(width, height);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0xaa6666,
+                transparent: true, 
+                opacity: 0.45,
+                side: THREE.DoubleSide
+            });
+            const face = new THREE.Mesh(geometry, material);
+            group.add(face);
+            const edgesGeo = new THREE.EdgesGeometry(geometry);
+            const edgesMat = new THREE.LineBasicMaterial({ color: 0xcc8888, linewidth: 1.5 });
+            const wireframe = new THREE.LineSegments(edgesGeo, edgesMat);
+            group.add(wireframe);
+            scene.add(group);
+            redSectionMeshes.push({ group, segIdx });
+        });
+        
+        // ---------- 6. 梁中间轴线（颜色为网格蓝色）----------
+        const axisPoints = [];
+        const axisSteps = 100;
+        for (let i = 0; i <= axisSteps; i++) {
+            const t = i / axisSteps;
+            const z = -length/2 + t * length;
+            axisPoints.push(new THREE.Vector3(0, 0, z));
+        }
+        const axisGeometry = new THREE.BufferGeometry().setFromPoints(axisPoints);
+        const axisMaterial = new THREE.LineBasicMaterial({ color: 0x6c9fcf, linewidth: 2.5 });
+        const centerAxis = new THREE.Line(axisGeometry, axisMaterial);
+        scene.add(centerAxis);
+        
+        // 存储未变形时的本地坐标
+        const shellLocal = [];
+        for (let i = 0; i <= segments; i++) {
+            const z = zPositions[i];
+            shellLocal.push([
+                new THREE.Vector3(-halfW, -halfH, z),
+                new THREE.Vector3( halfW, -halfH, z),
+                new THREE.Vector3( halfW,  halfH, z),
+                new THREE.Vector3(-halfW,  halfH, z)
+            ]);
+        }
+        
+        // 中性层本地坐标
+        const neutralLocalVerts = [];
+        for (let iz = 0; iz <= nz; iz++) {
+            const z = zPositions[iz];
+            for (let ix = 0; ix <= nx; ix++) {
+                neutralLocalVerts.push(new THREE.Vector3(xVals[ix], 0, z));
+            }
+        }
+        
+        // 轴线本地坐标存储
+        const axisLocalPoints = [];
+        for (let i = 0; i <= axisSteps; i++) {
+            const t = i / axisSteps;
+            const z = -length/2 + t * length;
+            axisLocalPoints.push(new THREE.Vector3(0, 0, z));
+        }
+        
+        // ======================= 变形核心函数 =======================
+        function updateDeformation(t) {
+            const k = t * 0.065;
+            let R = (Math.abs(k) < 1e-8) ? Infinity : 1 / k;
+            
+            // 1. 更新外壳线框
+            const shellPosAttr = shellGeo.attributes.position.array;
+            let idx = 0;
+            for (let i = 0; i <= segments; i++) {
+                for (let j = 0; j < 4; j++) {
+                    const local = shellLocal[i][j];
+                    if (R === Infinity) {
+                        shellPosAttr[idx] = local.x;
+                        shellPosAttr[idx+1] = local.y;
+                        shellPosAttr[idx+2] = local.z;
+                    } else {
+                        const theta = local.z / R;
+                        const radius = R - local.y;
+                        const X = local.x;
+                        const Y = R - radius * Math.cos(theta);
+                        const Z = radius * Math.sin(theta);
+                        shellPosAttr[idx] = X;
+                        shellPosAttr[idx+1] = Y;
+                        shellPosAttr[idx+2] = Z;
+                    }
+                    idx += 3;
+                }
+            }
+            shellGeo.attributes.position.needsUpdate = true;
+            
+            // 2. 更新中性层
+            const neutralPosAttr = neutralGeo.attributes.position.array;
+            idx = 0;
+            for (let i = 0; i < neutralLocalVerts.length; i++) {
+                const local = neutralLocalVerts[i];
+                if (R === Infinity) {
+                    neutralPosAttr[idx] = local.x;
+                    neutralPosAttr[idx+1] = local.y;
+                    neutralPosAttr[idx+2] = local.z;
+                } else {
+                    const theta = local.z / R;
+                    const radius = R;
+                    const X = local.x;
+                    const Y = R - radius * Math.cos(theta);
+                    const Z = radius * Math.sin(theta);
+                    neutralPosAttr[idx] = X;
+                    neutralPosAttr[idx+1] = Y;
+                    neutralPosAttr[idx+2] = Z;
+                }
+                idx += 3;
+            }
+            neutralGeo.attributes.position.needsUpdate = true;
+            
+            // 更新中性层边框
+            const borderPosAttr = neutralBorder.geometry.attributes.position;
+            if (borderPosAttr) {
+                const borderArray = borderPosAttr.array;
+                for (let i = 0; i < neutralLocalVerts.length; i++) {
+                    const local = neutralLocalVerts[i];
+                    if (R === Infinity) {
+                        borderArray[i*3] = local.x;
+                        borderArray[i*3+1] = local.y;
+                        borderArray[i*3+2] = local.z;
+                    } else {
+                        const theta = local.z / R;
+                        const radius = R;
+                        const X = local.x;
+                        const Y = R - radius * Math.cos(theta);
+                        const Z = radius * Math.sin(theta);
+                        borderArray[i*3] = X;
+                        borderArray[i*3+1] = Y;
+                        borderArray[i*3+2] = Z;
+                    }
+                }
+                borderPosAttr.needsUpdate = true;
+            }
+            
+            // 3. 更新所有蓝色十字网格截面 (位置和旋转)
+            allSectionGroups.forEach(item => {
+                const segIdx = item.segIdx;
+                const group = item.group;
+                const localZ = zPositions[segIdx];
+                
+                if (R === Infinity) {
+                    group.position.set(0, 0, localZ);
+                    group.rotation.set(0, 0, 0);
+                } else {
+                    const theta = localZ / R;
+                    const centerX = 0;
+                    const centerY = R - R * Math.cos(theta);
+                    const centerZ = R * Math.sin(theta);
+                    group.position.set(centerX, centerY, centerZ);
+                    group.rotation.set(-theta, 0, 0);
+                }
+            });
+            
+            // 4. 更新暗红色半透明截面
+            redSectionMeshes.forEach(item => {
+                const segIdx = item.segIdx;
+                const group = item.group;
+                const localZ = zPositions[segIdx];
+                
+                if (R === Infinity) {
+                    group.position.set(0, 0, localZ);
+                    group.rotation.set(0, 0, 0);
+                } else {
+                    const theta = localZ / R;
+                    const centerX = 0;
+                    const centerY = R - R * Math.cos(theta);
+                    const centerZ = R * Math.sin(theta);
+                    group.position.set(centerX, centerY, centerZ);
+                    group.rotation.set(-theta, 0, 0);
+                }
+            });
+            
+            // 5. 更新中间轴线
+            const axisPosAttr = centerAxis.geometry.attributes.position;
+            if (axisPosAttr) {
+                const axisArray = axisPosAttr.array;
+                for (let i = 0; i < axisLocalPoints.length; i++) {
+                    const local = axisLocalPoints[i];
+                    if (R === Infinity) {
+                        axisArray[i*3] = local.x;
+                        axisArray[i*3+1] = local.y;
+                        axisArray[i*3+2] = local.z;
+                    } else {
+                        const theta = local.z / R;
+                        const radius = R;
+                        const X = local.x;
+                        const Y = R - radius * Math.cos(theta);
+                        const Z = radius * Math.sin(theta);
+                        axisArray[i*3] = X;
+                        axisArray[i*3+1] = Y;
+                        axisArray[i*3+2] = Z;
+                    }
+                }
+                axisPosAttr.needsUpdate = true;
+            }
+            
+            // 6. 关键: 更新顶部和底部的纵向蓝线 (基于变形后的截面组位置和旋转)
+            updateLongitudinalLines();
+        }
+        
+        // --- 绑定UI滑块 ---
+        const slider = document.getElementById('bend-slider');
+        const paramSpan = document.getElementById('parameter-value');
+        
+        slider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            paramSpan.textContent = val.toFixed(2);
+            updateDeformation(val);
+        });
+        
+        // 初始更新一次，建立纵向线
+        updateDeformation(0);
+        
+        // 确保在动画循环中不需要额外更新，但是因为滑块触发updateDeformation，纵向线会随之更新。
+        // 为了轨道控制后依然正确，由于变形函数仅在滑块变化时调用，但如果旋转相机纵向线几何体不变，足够。
+        // 但为了应对未来可能动态改变，不需要额外动作。
+        
+        // 移除原有的坐标轴辅助对象和圆环 (保证干净)
+        // 已确保没有添加 AxesHelper 和 Ring
+        
+        // --- 主渲染循环 ---
+        function renderLoop() {
+            requestAnimationFrame(renderLoop);
+            controls.update(); // 更新轨道控制
+            renderer.render(scene, camera);
+        }
+        renderLoop();
+        
+        // --- 窗口适配 ---
+        window.addEventListener('resize', onWindowResize, false);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        console.log('纯弯曲演示增强版');
+    </script>
+</body>
+</html>
